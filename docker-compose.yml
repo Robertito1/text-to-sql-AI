@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=YourStrong!Passw0rd
+      - MSSQL_PID=Express
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql_data:/var/opt/mssql
+
+  api:
+    build: .
+    container_name: sql-ai-api
+    depends_on:
+      - db
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DB_URI=mssql+pyodbc://sa:YourStrong!Passw0rd@db,1433/AnalyticsDB?driver=ODBC+Driver+17+for+SQL+Server
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chroma_db:/app/chroma_db
+
+volumes:
+  sql_data:
