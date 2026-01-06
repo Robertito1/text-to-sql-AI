@@ -9,3 +9,4 @@ chromadb
 python-dotenv
 pyodbc
 SQLAlchemy
+sentence-transformers

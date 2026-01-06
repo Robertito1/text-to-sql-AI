@@ -1,6 +1,6 @@
 import re
 import logging
-from typing import List
+from typing import List, Any, Tuple, Union, Optional
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.vectorstores import Chroma
@@ -45,6 +45,75 @@ def extract_sql(text: str) -> str:
     # Otherwise, return raw (and guard will reject if it's not SQL)
     return text.strip()
 
+def _format_sql_result(question: str, sql: str, result: Any, llm: Any) -> str:
+    """
+    Format SQL query results into a user-friendly response.
+    
+    Args:
+        question: The original user question
+        sql: The SQL query that was executed
+        result: The raw result from the database
+        llm: The language model for generating summaries
+        
+    Returns:
+        Formatted string with the query results
+    """
+    try:
+        # Handle empty results
+        if result is None:
+            return "No results found.\n\n---\n**SQL used:**\n```sql\n{sql}\n```"
+            
+        # Handle single value results (like COUNT(*))
+        if isinstance(result, (list, tuple)) and result and isinstance(result[0], (list, tuple)) and len(result[0]) == 1:
+            value = result[0][0]
+            # Special case for count-like queries
+            if any(q in question.lower() for q in ["how many", "number of", "count of"]):
+                try:
+                    count = int(value) if value is not None else 0
+                    noun = 'result' if 'result' in question.lower() else 'item'
+                    noun = 'table' if 'table' in question.lower() else noun
+                    return (
+                        f"There {'is' if count == 1 else 'are'} {count} {noun}{'' if count == 1 else 's'}.\n\n"
+                        f"---\n**SQL used:**\n```sql\n{sql}\n```\n\n"
+                        f"---\n**Raw result:**\n```\n{result}\n```"
+                    )
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Could not convert count result to integer: {e}")
+        
+        # For other results, use the LLM to generate a summary
+        logger.debug("Generating natural language summary")
+        summary_prompt = ChatPromptTemplate.from_messages([
+            ("system", 
+             "You are a helpful SQL assistant. "
+             "Summarize the query results in a clear, concise way. "
+             "If the results are technical or complex, explain them in simple terms."),
+            ("human", 
+             "Question: {question}\n\n"
+             "SQL Query:\n```sql\n{sql}\n```\n\n"
+             "Query Results:\n```\n{result}\n```")
+        ])
+        
+        summary = llm.invoke(summary_prompt.format_messages(
+            question=question, 
+            sql=sql, 
+            result=str(result)[:2000]  # Limit size to avoid context window issues
+        )).content
+        
+        return (
+            f"{summary}\n\n"
+            f"---\n**SQL used:**\n```sql\n{sql}\n```\n\n"
+            f"---\n**Raw result (truncated):**\n```\n{str(result)[:500]}{'...' if len(str(result)) > 500 else ''}\n```"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error formatting SQL result: {e}", exc_info=True)
+        return (
+            f"An error occurred while processing the query results.\n\n"
+            f"---\n**SQL used:**\n```sql\n{sql}\n```\n\n"
+            f"---\n**Raw result (truncated):**\n```\n{str(result)[:1000]}\n```\n\n"
+            f"Error: {str(e)}"
+        )
+
 def answer_question(question: str) -> tuple[str, str]:
     """
     Answer a natural language question by generating and executing SQL.
@@ -76,7 +145,7 @@ def answer_question(question: str) -> tuple[str, str]:
         schema_ctx = "\n\n".join(d.page_content for d in docs) if docs else "\n\n".join(SCHEMA_SNIPPETS[:4])
         logger.debug(f"Retrieved {len(docs)} schema documents")
 
-        # 2) Ask Ollama for SQL ONLY
+        # Generate SQL using the LLM
         logger.debug("Generating SQL query with LLM")
         sql_prompt = ChatPromptTemplate.from_messages([
             ("system",
@@ -89,6 +158,14 @@ def answer_question(question: str) -> tuple[str, str]:
             ),
             ("human", "Schema:\n{schema}\n\nQuestion: {question}")
         ])
+        
+        sql_raw = llm.invoke(sql_prompt.format_messages(schema=schema_ctx, question=question)).content
+        sql = extract_sql(sql_raw)
+        sql = normalize_sql(sql)
+        
+        if not sql:
+            logger.warning("LLM returned empty SQL")
+            raise ValueError("Failed to generate SQL query from question")
 
         sql_raw = llm.invoke(sql_prompt.format_messages(schema=schema_ctx, question=question)).content
         sql = extract_sql(sql_raw)
@@ -119,19 +196,12 @@ def answer_question(question: str) -> tuple[str, str]:
             logger.error(f"Database query failed: {e}")
             raise RuntimeError(f"Failed to execute query: {str(e)}")
 
-        # 5) Summarize results
-        logger.debug("Generating natural language summary")
-        summary_prompt = ChatPromptTemplate.from_messages([
-            ("system", "Summarize SQL results for the user in a short, clear answer."),
-            ("human", "Question: {question}\n\nSQL:\n{sql}\n\nRaw result:\n{result}")
-        ])
-        summary = llm.invoke(summary_prompt.format_messages(
-            question=question, sql=sql, result=result
-        )).content
-
-        formatted_answer = f"{summary}\n\n---\n**SQL used:**\n```sql\n{sql}\n```\n\n---\n**Raw result:**\n```\n{result}\n```"
+        # 5) Process and format the query results
+        logger.debug("Processing query results")
+        formatted_answer = _format_sql_result(question, sql, result, llm)
         return (formatted_answer, sql)
     
     except Exception as e:
         logger.error(f"Error in answer_question: {e}", exc_info=True)
         raise
+        
