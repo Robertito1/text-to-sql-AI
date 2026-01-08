@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+langchain
+langchain-openai
+langgraph
+langchain-community
+langchain-ollama
+chromadb
+python-dotenv
+pyodbc
+SQLAlchemy
+sentence-transformers
