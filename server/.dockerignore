@@ -18,6 +18,7 @@ coverage.xml
 *.log
 .git
 .gitignore
+.env
 .env.local
 .env.*.local
 *.egg-info
@@ -28,3 +29,7 @@ build
 .mypy_cache
 .pytest_cache
 .hypothesis
+chroma_db/
+*.md
+Dockerfile.dev
+railway.json
