@@ -2,22 +2,57 @@
 
 A natural language to SQL query assistant with a React frontend and FastAPI backend. Ask questions about your database in plain English and get results with visualizations.
 
+## Architecture
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│                 │     │                 │     │                 │
+│  React Frontend │────▶│  FastAPI Backend│────▶│    Supabase     │
+│  (Vercel)       │     │  (Render)       │     │   PostgreSQL    │
+│                 │     │                 │     │                 │
+└─────────────────┘     └────────┬────────┘     └─────────────────┘
+                                 │
+                                 ▼
+                        ┌─────────────────┐
+                        │                 │
+                        │    Groq API     │
+                        │  (LLM - Llama)  │
+                        │                 │
+                        └─────────────────┘
+```
+
+### Components
+
+- **Frontend**: React + TypeScript + TailwindCSS hosted on Vercel/Netlify
+- **Backend**: FastAPI + LangChain + RAG (ChromaDB) hosted on Render
+- **Database**: Supabase PostgreSQL (free tier)
+- **LLM**: Groq API with Llama 3.3 70B (free, very fast)
+
+### How It Works
+
+1. User asks a question in natural language
+2. Backend uses RAG to retrieve relevant schema documentation
+3. LLM generates PostgreSQL query based on schema context
+4. Query is validated for safety (read-only)
+5. Query executes against Supabase PostgreSQL
+6. Results are returned with auto-generated charts
+
 ## Project Structure
 
 ```
 text-to-sql-AI/
 ├── server/                 # Backend (FastAPI + LangChain)
 │   ├── app/
-│   │   ├── agent.py       # SQL generation and execution
-│   │   ├── db.py          # Database connection
-│   │   ├── llm.py         # LLM configuration
+│   │   ├── agent.py       # SQL generation and execution with RAG
+│   │   ├── db.py          # Database connection (PostgreSQL/SQL Server)
+│   │   ├── llm.py         # Groq LLM configuration
 │   │   ├── main.py        # FastAPI endpoints
 │   │   ├── models.py      # Pydantic models
 │   │   ├── safe_sql.py    # SQL safety checks
-│   │   └── schema_docs.py # Schema documentation
-│   ├── chroma_db/         # Vector store for RAG
+│   │   └── schema_docs.py # Schema documentation for RAG
+│   ├── chroma_db/         # Vector store for RAG embeddings
 │   ├── requirements.txt
-│   └── .env
+│   └── Dockerfile
 ├── frontend/              # Frontend (React + Vite + TailwindCSS)
 │   ├── src/
 │   │   ├── components/    # React components
