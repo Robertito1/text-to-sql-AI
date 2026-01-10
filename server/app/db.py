@@ -1,5 +1,4 @@
 import os
-from urllib.parse import quote_plus
 from langchain_community.utilities import SQLDatabase
 from sqlalchemy import create_engine
 from sqlalchemy.pool import QueuePool
@@ -14,11 +13,19 @@ def init_database() -> SQLDatabase:
     if _db_instance is not None:
         return _db_instance
     
+    # Support both PostgreSQL (DATABASE_URL) and SQL Server (ODBC_STR)
+    database_url = os.getenv("DATABASE_URL")
     odbc_str = os.getenv("ODBC_STR")
-    if not odbc_str:
-        raise RuntimeError("ODBC_STR is not set in environment variables")
     
-    db_uri = "mssql+pyodbc:///?odbc_connect=" + quote_plus(odbc_str)
+    if database_url:
+        # PostgreSQL (Supabase)
+        db_uri = database_url
+    elif odbc_str:
+        # SQL Server (legacy)
+        from urllib.parse import quote_plus
+        db_uri = "mssql+pyodbc:///?odbc_connect=" + quote_plus(odbc_str)
+    else:
+        raise RuntimeError("DATABASE_URL or ODBC_STR must be set in environment variables")
     
     # Create engine with connection pooling
     engine = create_engine(

@@ -1,6 +1,7 @@
 import type { QueryResponse } from './types';
 
-const API_BASE_URL = 'http://localhost:8000';
+// Use /api prefix in production (Docker), direct URL in development
+const API_BASE_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8000';
 
 export async function askQuestion(question: string): Promise<QueryResponse> {
   const response = await fetch(`${API_BASE_URL}/ask`, {

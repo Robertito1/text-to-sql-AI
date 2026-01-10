@@ -1,0 +1,14 @@
+version: "3.9"
+
+# Use this file for systems without NVIDIA GPU
+# Run with: docker-compose -f docker-compose.yml -f docker-compose.cpu.yml up
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # No GPU reservation - runs on CPU only

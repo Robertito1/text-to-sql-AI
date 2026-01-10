@@ -12,19 +12,35 @@ services:
       - "1433:1433"
     volumes:
       - sql_data:/var/opt/mssql
+    healthcheck:
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "YourStrong!Passw0rd" -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   api:
-    build: .
+    build: ./server
     container_name: sql-ai-api
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - DB_URI=mssql+pyodbc://sa:YourStrong!Passw0rd@db,1433/AnalyticsDB?driver=ODBC+Driver+17+for+SQL+Server
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=llama-3.3-70b-versatile
+      - ODBC_STR=DRIVER={ODBC Driver 17 for SQL Server};SERVER=db;DATABASE=inventory;UID=sa;PWD=YourStrong!Passw0rd;
     ports:
       - "8000:8000"
     volumes:
-      - ./chroma_db:/app/chroma_db
+      - ./server/chroma_db:/app/chroma_db
+
+  frontend:
+    build: ./frontend
+    container_name: sql-ai-frontend
+    depends_on:
+      - api
+    ports:
+      - "80:80"
 
 volumes:
   sql_data:

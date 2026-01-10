@@ -30,26 +30,13 @@ def get_vectorstore() -> Chroma:
     return vs
 
 def normalize_sql(sql: str) -> str:
-    """Remove markdown code fences and fix common syntax issues for SQL Server."""
+    """Remove markdown code fences."""
     if not sql:
         return sql
     
     s = sql.strip()
     s = re.sub(r"^```(?:sql)?\s*", "", s, flags=re.IGNORECASE)
     s = re.sub(r"\s*```$", "", s)
-    
-    # Fix MySQL LIMIT to SQL Server TOP
-    # Pattern: ... LIMIT N at the end of query
-    limit_match = re.search(r'\bLIMIT\s+(\d+)\s*;?\s*$', s, flags=re.IGNORECASE)
-    if limit_match:
-        limit_num = limit_match.group(1)
-        # Remove the LIMIT clause
-        s = re.sub(r'\bLIMIT\s+\d+\s*;?\s*$', '', s, flags=re.IGNORECASE).strip()
-        # Add TOP after SELECT
-        s = re.sub(r'^(SELECT)\s+', rf'\1 TOP {limit_num} ', s, flags=re.IGNORECASE)
-        # Ensure it ends with semicolon
-        if not s.endswith(';'):
-            s += ';'
     
     return s.strip()
 
@@ -61,7 +48,96 @@ def extract_sql(text: str) -> str:
     # Otherwise, return raw (and guard will reject if it's not SQL)
     return text.strip()
 
-def _parse_raw_result(result: Any) -> List[Dict[str, Any]]:
+def _extract_column_names(sql: str) -> List[str]:
+    """
+    Extract column names/aliases from a SELECT SQL query.
+    """
+    try:
+        # For CTEs, find the final SELECT statement (after the last closing paren of CTE)
+        sql_to_parse = sql
+        if sql.strip().upper().startswith('WITH'):
+            # Find the main SELECT after the CTE definition
+            # Look for SELECT that's not inside the CTE
+            cte_depth = 0
+            main_select_pos = -1
+            i = 0
+            while i < len(sql):
+                if sql[i] == '(':
+                    cte_depth += 1
+                elif sql[i] == ')':
+                    cte_depth -= 1
+                elif cte_depth == 0 and sql[i:i+6].upper() == 'SELECT':
+                    # Skip the first SELECT inside WITH clause
+                    if i > 0:
+                        main_select_pos = i
+                        break
+                i += 1
+            if main_select_pos > 0:
+                sql_to_parse = sql[main_select_pos:]
+        
+        # Get the SELECT ... FROM part
+        match = re.search(r'SELECT\s+(.*?)\s+FROM', sql_to_parse, re.IGNORECASE | re.DOTALL)
+        if not match:
+            return []
+        
+        select_part = match.group(1).strip()
+        
+        # Handle SELECT TOP N / DISTINCT
+        select_part = re.sub(r'^(TOP\s+\d+\s+|DISTINCT\s+)+', '', select_part, flags=re.IGNORECASE)
+        
+        columns = []
+        # Split by comma, but be careful with functions containing commas
+        depth = 0
+        current = ""
+        for char in select_part:
+            if char == '(':
+                depth += 1
+            elif char == ')':
+                depth -= 1
+            elif char == ',' and depth == 0:
+                columns.append(current.strip())
+                current = ""
+                continue
+            current += char
+        if current.strip():
+            columns.append(current.strip())
+        
+        # Extract alias or column name from each column expression
+        names = []
+        for col in columns:
+            col = col.strip()
+            # Check for AS alias (with or without quotes)
+            as_match = re.search(r'\s+AS\s+["\']?(\w+)["\']?\s*$', col, re.IGNORECASE)
+            if as_match:
+                names.append(as_match.group(1))
+            elif '.' in col and '(' not in col:
+                # Simple table.column format like c.Name, c.Email
+                # Extract just the column name after the dot
+                col_name = col.split('.')[-1].strip()
+                # Remove any trailing whitespace or brackets
+                col_name = re.sub(r'[\s\[\]]+', '', col_name)
+                names.append(col_name)
+            else:
+                # Get the last word (column name)
+                # Remove function wrappers if present
+                clean_col = re.sub(r'^\w+\((.*)\)$', r'\1', col)
+                parts = clean_col.split()
+                if parts:
+                    last_part = parts[-1]
+                    # Clean up any table prefix
+                    if '.' in last_part:
+                        last_part = last_part.split('.')[-1]
+                    names.append(last_part)
+                else:
+                    names.append(f"col_{len(names)}")
+        
+        return names
+    except Exception as e:
+        logger.warning(f"Failed to extract column names: {e}")
+        return []
+
+
+def _parse_raw_result(result: Any, sql: str = "") -> List[Dict[str, Any]]:
     """
     Parse raw SQL result into a list of dictionaries.
     Handles string format like "[('2025-10', Decimal('436689.06')), ...]"
@@ -69,18 +145,26 @@ def _parse_raw_result(result: Any) -> List[Dict[str, Any]]:
     if result is None:
         return []
     
+    # Extract column names from SQL
+    column_names = _extract_column_names(sql) if sql else []
+    
+    def get_key(index: int) -> str:
+        if index < len(column_names):
+            return column_names[index]
+        return f"col_{index}"
+    
     # If result is already a list of tuples/lists
     if isinstance(result, list):
         parsed = []
         for row in result:
             if isinstance(row, (list, tuple)):
-                # Convert to dict with generic keys
                 row_dict = {}
                 for i, val in enumerate(row):
+                    key = get_key(i)
                     if isinstance(val, Decimal):
-                        row_dict[f"col_{i}"] = float(val)
+                        row_dict[key] = float(val)
                     else:
-                        row_dict[f"col_{i}"] = val
+                        row_dict[key] = val
                 parsed.append(row_dict)
             elif isinstance(row, dict):
                 parsed.append(row)
@@ -94,11 +178,10 @@ def _parse_raw_result(result: Any) -> List[Dict[str, Any]]:
         try:
             # Replace Decimal('...') with just the number for ast.literal_eval
             import ast
-            import re
             # Convert Decimal('123.45') to 123.45
             cleaned = re.sub(r"Decimal\('([^']+)'\)", r"\1", result)
             evaluated = ast.literal_eval(cleaned)
-            return _parse_raw_result(evaluated)
+            return _parse_raw_result(evaluated, sql)
         except Exception as e:
             logger.warning(f"Failed to parse result string: {e}")
             pass
@@ -119,8 +202,38 @@ def _determine_chart_config(question: str, data: List[Dict], sql: str) -> Option
     if len(keys) < 2:
         return None
     
+    # Check if this is a list query (not suitable for charts)
+    # Lists typically have 3+ columns or contain text-heavy data like names/emails
+    list_indicators = ['list', 'show me', 'who are', 'which customers', 'all customers', 'all orders']
+    if any(indicator in question_lower for indicator in list_indicators):
+        # Check if data has numeric aggregation column - if not, skip chart
+        has_numeric_agg = False
+        for key in keys:
+            if any(data[0].get(key) is not None and isinstance(data[0].get(key), (int, float)) 
+                   for _ in [1]):
+                # Check if it looks like an aggregation (SUM, COUNT, AVG result)
+                key_lower = key.lower()
+                if any(agg in key_lower for agg in ['sum', 'count', 'avg', 'total', 'amount', 'revenue']):
+                    has_numeric_agg = True
+                    break
+        if not has_numeric_agg:
+            return None
+    
+    # Skip charts for data with more than 2 columns that looks like a detail list
+    if len(keys) > 2:
+        # Check if columns look like entity details (name, email, etc.)
+        detail_columns = ['name', 'email', 'address', 'phone', 'country', 'status', 'date']
+        detail_count = sum(1 for k in keys if any(d in k.lower() for d in detail_columns))
+        if detail_count >= 2:
+            return None
+    
     x_key = keys[0]
     y_key = keys[1]
+    
+    # Check if y_key contains numeric data suitable for charting
+    sample_y = data[0].get(y_key)
+    if not isinstance(sample_y, (int, float)):
+        return None
     
     # Determine chart type based on question keywords
     if any(word in question_lower for word in ['trend', 'over time', 'monthly', 'daily', 'yearly', 'growth']):
@@ -204,6 +317,9 @@ def _generate_summary(question: str, sql: str, data: List[Dict], llm: Any) -> st
     
     # Use LLM for more complex summaries
     try:
+        total_count = len(data)
+        sample_data = data[:20] if len(data) > 20 else data
+        
         summary_prompt = ChatPromptTemplate.from_messages([
             ("system", 
              "You are a helpful SQL assistant. "
@@ -211,12 +327,15 @@ def _generate_summary(question: str, sql: str, data: List[Dict], llm: Any) -> st
              "Focus on the key insights. Do not include SQL or raw data in your response."),
             ("human", 
              "Question: {question}\n\n"
-             "Results (as JSON): {data}")
+             "Total results: {total_count}\n"
+             "Sample data (first {sample_size}): {data}")
         ])
         
         summary = llm.invoke(summary_prompt.format_messages(
             question=question,
-            data=json.dumps(data[:20], default=str)  # Limit to first 20 rows
+            total_count=total_count,
+            sample_size=len(sample_data),
+            data=json.dumps(sample_data, default=str)
         )).content
         
         return summary
@@ -257,18 +376,45 @@ def answer_question(question: str) -> QueryResponse:
 
         # Generate SQL using the LLM
         logger.debug("Generating SQL query with LLM")
+        
+        # Detect database type from environment
+        import os
+        is_postgres = bool(os.getenv("DATABASE_URL"))
+        
+        if is_postgres:
+            sql_system_prompt = (
+                "You are a PostgreSQL expert.\n"
+                "Return ONLY the SQL query, no explanations.\n"
+                "CRITICAL PostgreSQL RULES:\n"
+                "- READ ONLY: Only SELECT or WITH statements\n"
+                "- LIMIT RULES:\n"
+                "  - Use LIMIT only when the user asks for 'top N', 'first N', 'best N', or similar\n"
+                "  - Do NOT add LIMIT for aggregation queries (COUNT, SUM, AVG) or when user wants all results\n"
+                "- STRICT GROUP BY: In PostgreSQL, EVERY column in SELECT must either be:\n"
+                "  1. Inside an aggregate function (SUM, COUNT, AVG, MAX, MIN), OR\n"
+                "  2. Listed in the GROUP BY clause\n"
+                "- Example: SELECT country, SUM(amount) FROM orders GROUP BY country -- country must be in GROUP BY\n"
+                "- Use TO_CHAR(date, 'YYYY-MM') for year-month grouping\n"
+                "- Use CURRENT_DATE for current date, date - INTERVAL 'N days' for date math\n"
+                "- PREFER SIMPLE QUERIES: Use basic JOINs and single-level aggregations. Avoid complex multi-CTE queries.\n"
+                "- Output only valid, executable PostgreSQL\n"
+            )
+        else:
+            sql_system_prompt = (
+                "You are a Microsoft SQL Server (T-SQL) expert.\n"
+                "Return ONLY the SQL query, no explanations.\n"
+                "CRITICAL T-SQL RULES:\n"
+                "- READ ONLY: Only SELECT or WITH statements\n"
+                "- Use SELECT TOP N instead of LIMIT\n"
+                "- All non-aggregated columns in SELECT must be in GROUP BY\n"
+                "- Use FORMAT(date, 'yyyy-MM') for year-month grouping\n"
+                "- Use GETDATE() for current date, DATEADD() for date math\n"
+                "- For monthly aggregations: GROUP BY FORMAT(DateColumn, 'yyyy-MM')\n"
+                "- Output only valid, executable T-SQL\n"
+            )
+        
         sql_prompt = ChatPromptTemplate.from_messages([
-            ("system",
-            "You are a Microsoft SQL Server (T-SQL) assistant.\n"
-            "Return ONLY ONE SQL query using T-SQL syntax.\n"
-            "CRITICAL RULES:\n"
-            "- READ ONLY (SELECT or WITH)\n"
-            "- NEVER use LIMIT - use SELECT TOP N instead (e.g., SELECT TOP 10 * FROM table)\n"
-            "- Use FORMAT() for date formatting\n"
-            "- Use GETDATE() for current date\n"
-            "- Prefer sys.tables / sys.columns over INFORMATION_SCHEMA\n"
-            "- No explanations, just the SQL query\n"
-            ),
+            ("system", sql_system_prompt),
             ("human", "Schema:\n{schema}\n\nQuestion: {question}")
         ])
         
@@ -312,7 +458,7 @@ def answer_question(question: str) -> QueryResponse:
 
         # Parse and structure the results
         logger.debug("Processing query results")
-        data = _parse_raw_result(result)
+        data = _parse_raw_result(result, sql)
         
         # Generate summary
         summary = _generate_summary(question, sql, data, llm)

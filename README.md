@@ -25,15 +25,16 @@ text-to-sql-AI/
 │   │   ├── api.ts         # API client
 │   │   └── types.ts       # TypeScript types
 │   └── package.json
-└── populate_database.py   # Script to populate test data
+├── populate_database.py         # Script to populate SQL Server test data
+└── populate_database_postgres.py # Script to populate PostgreSQL test data
 ```
 
 ## Prerequisites
 
 - Python 3.10+
 - Node.js 18+
-- SQL Server database
-- Ollama with a model installed (e.g., `llama3.2`)
+- Database: PostgreSQL (Supabase) or SQL Server
+- Groq API key (free at https://console.groq.com)
 
 ## Setup
 
@@ -50,9 +51,15 @@ venv\Scripts\activate  # Windows
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure environment variables
-# Edit .env file with your database connection string:
-# ODBC_STR=Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=YourDB;UID=user;PWD=password;
+# Configure environment variables in .env:
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=llama-3.3-70b-versatile
+
+# For PostgreSQL (Supabase):
+DATABASE_URL=postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+
+# For SQL Server (optional):
+ODBC_STR=Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=YourDB;UID=user;PWD=password;
 ```
 
 ### 2. Frontend Setup
@@ -67,7 +74,10 @@ npm install
 ### 3. Populate Test Data (Optional)
 
 ```bash
-# From project root
+# For PostgreSQL (Supabase)
+python populate_database_postgres.py
+
+# For SQL Server
 python populate_database.py
 ```
 
@@ -88,6 +98,16 @@ npm run dev
 ```
 
 The frontend will be available at `http://localhost:5173`
+
+## Docker Deployment
+
+```bash
+# Build and run with Docker Compose
+docker-compose up --build
+
+# For development with hot reload
+docker-compose -f docker-compose.yml -f docker-compose.override.yml up
+```
 
 ## Features
 
@@ -126,11 +146,11 @@ The frontend will be available at `http://localhost:5173`
   "success": true,
   "summary": "There are 1000 customers.",
   "sql": "SELECT COUNT(*) FROM Customers",
-  "data": [{"col_0": 1000}],
+  "data": [{"count": 1000}],
   "chart": {
     "type": "bar",
-    "x_key": "col_0",
-    "y_key": "col_1",
+    "x_key": "category",
+    "y_key": "value",
     "title": "Query Results"
   },
   "error": null
@@ -142,9 +162,9 @@ The frontend will be available at `http://localhost:5173`
 ### Backend
 - FastAPI
 - LangChain
-- Ollama (local LLM)
+- Groq API (LLM - llama-3.3-70b-versatile)
 - ChromaDB (vector store)
-- SQLAlchemy + pyodbc
+- SQLAlchemy + psycopg2 (PostgreSQL) / pyodbc (SQL Server)
 
 ### Frontend
 - React 18
@@ -153,3 +173,10 @@ The frontend will be available at `http://localhost:5173`
 - TailwindCSS
 - Recharts
 - Lucide Icons
+
+## Deployment
+
+- **Frontend**: Vercel or Netlify (free tier)
+- **Backend**: Railway or Render (free tier)
+- **Database**: Supabase PostgreSQL (free tier)
+- **LLM**: Groq API (free, very fast)
