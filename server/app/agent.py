@@ -18,16 +18,34 @@ logger = logging.getLogger(__name__)
 
 CHROMA_DIR = "chroma_db"
 
+# Singleton for vectorstore to avoid repeated model loading
+_vectorstore_instance: Chroma | None = None
+
 def get_vectorstore() -> Chroma:
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    global _vectorstore_instance
+    
+    if _vectorstore_instance is not None:
+        return _vectorstore_instance
+    
+    logger.info("Initializing embeddings model...")
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={'device': 'cpu'},
+        encode_kwargs={'normalize_embeddings': True}
+    )
+    
+    logger.info("Initializing ChromaDB...")
     vs = Chroma(persist_directory=CHROMA_DIR, embedding_function=embeddings)
 
     if vs._collection.count() == 0:
+        logger.info("Populating vector store with schema docs...")
         docs: List[Document] = [Document(page_content=txt) for txt in SCHEMA_SNIPPETS]
         vs.add_documents(docs)
         vs.persist()
-
-    return vs
+    
+    _vectorstore_instance = vs
+    logger.info("Vector store initialized successfully")
+    return _vectorstore_instance
 
 def normalize_sql(sql: str) -> str:
     """Remove markdown code fences."""
