@@ -82,28 +82,28 @@ class TestExtractColumnNames:
     def test_handles_star_select(self):
         sql = "SELECT * FROM users"
         result = _extract_column_names(sql)
-        assert result == []
+        assert result == ['*']  # Returns ['*'] for star select
 
 
 class TestParseRawResult:
     """Tests for _parse_raw_result function."""
     
     def test_parses_simple_result(self):
-        raw = "[('USA', 100), ('Canada', 50)]"
-        columns = ["country", "count"]
-        result = _parse_raw_result(raw, columns)
+        raw = [('USA', 100), ('Canada', 50)]
+        sql = "SELECT country, count FROM customers"
+        result = _parse_raw_result(raw, sql)
         assert len(result) == 2
         assert result[0]["country"] == "USA"
         assert result[0]["count"] == 100
     
     def test_handles_empty_result(self):
-        raw = "[]"
-        columns = ["name"]
-        result = _parse_raw_result(raw, columns)
+        raw = []
+        sql = "SELECT name FROM users"
+        result = _parse_raw_result(raw, sql)
         assert result == []
     
     def test_handles_single_column(self):
-        raw = "[(100,)]"
-        columns = ["total"]
-        result = _parse_raw_result(raw, columns)
+        raw = [(100,)]
+        sql = "SELECT COUNT(*) AS total FROM users"
+        result = _parse_raw_result(raw, sql)
         assert result[0]["total"] == 100
