@@ -10,3 +10,5 @@ services:
         value: llama-3.3-70b-versatile
       - key: DATABASE_URL
         sync: false
+      - key: COHERE_API_KEY
+        sync: false
