@@ -23,10 +23,10 @@ A natural language to SQL query assistant with a React frontend and FastAPI back
 
 ### Components
 
-- **Frontend**: React + TypeScript + TailwindCSS hosted on Vercel/Netlify
+- **Frontend**: React + TypeScript + TailwindCSS hosted on Netlify
 - **Backend**: FastAPI + LangChain + RAG (ChromaDB) hosted on Render
-- **Database**: Supabase PostgreSQL (free tier)
-- **LLM**: Groq API with Llama 3.3 70B (free, very fast)
+- **Database**: Supabase PostgreSQL
+- **LLM**: Groq API with Llama 3.3 70B
 
 ### How It Works
 
@@ -89,6 +89,7 @@ pip install -r requirements.txt
 # Configure environment variables in .env:
 GROQ_API_KEY=your_groq_api_key
 GROQ_MODEL=llama-3.3-70b-versatile
+COHERE_API_KEY=cohere-api-key
 
 # For PostgreSQL (Supabase):
 DATABASE_URL=postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
@@ -198,6 +199,7 @@ docker-compose -f docker-compose.yml -f docker-compose.override.yml up
 - FastAPI
 - LangChain
 - Groq API (LLM - llama-3.3-70b-versatile)
+- Cohere API
 - ChromaDB (vector store)
 - SQLAlchemy + psycopg2 (PostgreSQL) / pyodbc (SQL Server)
 
@@ -211,7 +213,7 @@ docker-compose -f docker-compose.yml -f docker-compose.override.yml up
 
 ## Deployment
 
-- **Frontend**: Vercel or Netlify (free tier)
-- **Backend**: Railway or Render (free tier)
-- **Database**: Supabase PostgreSQL (free tier)
-- **LLM**: Groq API (free, very fast)
+- **Frontend**: Netlify
+- **Backend**: Render
+- **Database**: Supabase PostgreSQL
+- **LLM**: Groq API
