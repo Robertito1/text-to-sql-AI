@@ -10,3 +10,6 @@ chromadb
 python-dotenv
 psycopg2-binary
 SQLAlchemy
+pytest
+pytest-asyncio
+httpx

@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  build-backend:
+  test-backend:
     runs-on: ubuntu-latest
 
     steps:
@@ -27,7 +27,12 @@ jobs:
         run: |
           python -m compileall server/
 
-  build-frontend:
+      - name: Run backend tests
+        run: |
+          cd server
+          python -m pytest tests/ -v
+
+  test-frontend:
     runs-on: ubuntu-latest
 
     steps:
@@ -43,6 +48,11 @@ jobs:
         run: |
           cd frontend
           npm ci
+
+      - name: Run frontend tests
+        run: |
+          cd frontend
+          npm run test
 
       - name: Build frontend
         run: |

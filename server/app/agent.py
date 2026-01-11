@@ -441,10 +441,17 @@ def answer_question(question: str, history: list = None) -> QueryResponse:
             recent_history = history[-6:]  # Last 3 Q&A pairs (6 messages)
             history_parts = []
             for msg in recent_history:
-                role = "User" if msg.role == "user" else "Assistant"
-                history_parts.append(f"{role}: {msg.content}")
+                # Handle both Pydantic models and dicts
+                if hasattr(msg, 'role'):
+                    msg_role = msg.role
+                    msg_content = msg.content
+                else:
+                    msg_role = msg.get('role', 'user')
+                    msg_content = msg.get('content', '')
+                role = "User" if msg_role == "user" else "Assistant"
+                history_parts.append(f"{role}: {msg_content}")
             conversation_context = "\n".join(history_parts)
-            logger.debug(f"Using {len(recent_history)} messages from conversation history")
+            logger.info(f"Using {len(recent_history)} messages from conversation history")
 
         # Generate SQL using the LLM
         logger.debug("Generating SQL query with LLM")
@@ -469,6 +476,7 @@ def answer_question(question: str, history: list = None) -> QueryResponse:
                 "- Use TO_CHAR(date, 'YYYY-MM') for year-month grouping\n"
                 "- Use CURRENT_DATE for current date, date - INTERVAL 'N days' for date math\n"
                 "- PREFER SIMPLE QUERIES: Use basic JOINs and single-level aggregations. Avoid complex multi-CTE queries.\n"
+                "- CONVERSATION CONTEXT: If previous conversation is provided, use it to understand follow-up questions like 'what about X', 'show me more', 'filter by Y', etc.\n"
                 "- Output only valid, executable PostgreSQL\n"
             )
         else:
@@ -497,8 +505,10 @@ def answer_question(question: str, history: list = None) -> QueryResponse:
         ])
         
         if conversation_context:
+            logger.info(f"Including conversation context: {conversation_context[:200]}...")
             sql_raw = llm.invoke(sql_prompt.format_messages(schema=schema_ctx, history=conversation_context, question=question)).content
         else:
+            logger.info("No conversation context available")
             sql_raw = llm.invoke(sql_prompt.format_messages(schema=schema_ctx, question=question)).content
         sql = extract_sql(sql_raw)
         sql = normalize_sql(sql)

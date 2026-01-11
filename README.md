@@ -24,18 +24,21 @@ A natural language to SQL query assistant with a React frontend and FastAPI back
 ### Components
 
 - **Frontend**: React + TypeScript + TailwindCSS hosted on Netlify
-- **Backend**: FastAPI + LangChain + RAG (ChromaDB) hosted on Render
-- **Database**: Supabase PostgreSQL
-- **LLM**: Groq API with Llama 3.3 70B
+- **Backend**: FastAPI + LangChain + RAG (ChromaDB + Cohere Embeddings) hosted on Render
+- **Database**: Supabase PostgreSQL (free tier)
+- **LLM**: Groq API with Llama 3.3 70B (free, very fast)
+- **Embeddings**: Cohere API (free tier)
 
 ### How It Works
 
 1. User asks a question in natural language
-2. Backend uses RAG to retrieve relevant schema documentation
-3. LLM generates PostgreSQL query based on schema context
-4. Query is validated for safety (read-only)
-5. Query executes against Supabase PostgreSQL
-6. Results are returned with auto-generated charts
+2. Question is classified to ensure it's database-related
+3. Backend uses RAG (Cohere embeddings + ChromaDB) to retrieve relevant schema documentation
+4. Conversation history is included for follow-up questions
+5. LLM generates PostgreSQL query based on schema context
+6. Query is validated for safety (read-only)
+7. Query executes against Supabase PostgreSQL
+8. Results are returned with auto-generated charts and natural language summary
 
 ## Project Structure
 
@@ -69,7 +72,8 @@ text-to-sql-AI/
 - Python 3.10+
 - Node.js 18+
 - Database: PostgreSQL (Supabase) or SQL Server
-- Groq API key (free at https://console.groq.com)
+- Groq API key
+- Cohere API key
 
 ## Setup
 
@@ -135,24 +139,58 @@ npm run dev
 
 The frontend will be available at `http://localhost:5173`
 
-## Docker Deployment
+## Running with Docker (Local Development)
 
+Docker Compose is configured for local development with SQL Server. To use Supabase PostgreSQL instead, set the `DATABASE_URL` environment variable.
+
+### Prerequisites
+- Docker and Docker Compose installed
+- Create a `.env` file in the project root with your API keys:
+  ```
+  GROQ_API_KEY=your_groq_api_key
+  COHERE_API_KEY=your_cohere_api_key
+  ```
+
+### Option 1: With Local SQL Server
 ```bash
-# Build and run with Docker Compose
+# Start all services (SQL Server + API + Frontend)
 docker-compose up --build
 
-# For development with hot reload
+# Access:
+# - Frontend: http://localhost:80
+# - API: http://localhost:8000
+# - SQL Server: localhost:1433
+```
+
+### Option 2: With Supabase PostgreSQL
+```bash
+# Add DATABASE_URL to your .env file
+DATABASE_URL=postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+
+# Start only API and Frontend (skip local SQL Server)
+docker-compose up --build api frontend
+```
+
+### Development Mode (Hot Reload)
+```bash
+# Uses docker-compose.override.yml for hot reloading
 docker-compose -f docker-compose.yml -f docker-compose.override.yml up
+
+# Access:
+# - Frontend: http://localhost:5173
+# - API: http://localhost:8000
 ```
 
 ## Features
 
 - **Natural Language Queries**: Ask questions in plain English
+- **Conversation Memory**: Follow-up questions understand context from previous Q&A
+- **Question Validation**: Off-topic questions are politely redirected
 - **SQL Generation**: Automatically generates safe, read-only SQL queries
 - **Data Visualization**: Charts (bar, line, pie) based on query results
 - **Data Tables**: View raw query results in a formatted table
 - **SQL Display**: See the generated SQL with copy functionality
-- **RAG-Enhanced**: Uses schema documentation for better query generation
+- **RAG-Enhanced**: Uses Cohere embeddings + ChromaDB for schema context
 
 ## Example Questions
 
@@ -217,3 +255,22 @@ docker-compose -f docker-compose.yml -f docker-compose.override.yml up
 - **Backend**: Render
 - **Database**: Supabase PostgreSQL
 - **LLM**: Groq API
+- **Embeddings**: Cohere API
+
+## Testing
+
+### Backend Tests
+```bash
+cd server
+pip install pytest pytest-asyncio httpx
+python -m pytest tests/ -v
+```
+
+### Frontend Tests
+```bash
+cd frontend
+npm install
+npm run test
+```
+
+Tests run automatically on every push via GitHub Actions CI.
