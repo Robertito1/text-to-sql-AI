@@ -1,10 +1,17 @@
 from pydantic import BaseModel
-from typing import Any, Optional
+from typing import Any, Optional, List
+
+
+class ConversationMessage(BaseModel):
+    """A single message in the conversation history."""
+    role: str  # 'user' or 'assistant'
+    content: str
 
 
 class QueryRequest(BaseModel):
     """Incoming payload for asking a SQL question in natural language."""
     question: str
+    history: Optional[List[ConversationMessage]] = None  # Previous Q&A for context
 
 
 class ChartConfig(BaseModel):

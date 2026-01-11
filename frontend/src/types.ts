@@ -23,3 +23,8 @@ export interface Message {
   response?: QueryResponse;
   timestamp: Date;
 }
+
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}

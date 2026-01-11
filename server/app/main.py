@@ -73,7 +73,8 @@ async def ask_sql_question(req: QueryRequest):
     """
     try:
         logger.info(f"Processing question: {req.question}")
-        response = answer_question(req.question)
+        history = req.history if req.history else []
+        response = answer_question(req.question, history)
         logger.info("Question answered successfully")
         return response
     except Exception as e:

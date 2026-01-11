@@ -387,16 +387,20 @@ Respond with ONLY "YES" or "NO":
         logger.warning(f"Classification failed, assuming relevant: {e}")
         return True, ""  # Default to allowing the question
 
-def answer_question(question: str) -> QueryResponse:
+def answer_question(question: str, history: list = None) -> QueryResponse:
     """
     Answer a natural language question by generating and executing SQL.
     
     Args:
         question: Natural language question about the database
+        history: List of previous conversation messages for context
         
     Returns:
         QueryResponse with structured data for frontend
     """
+    if history is None:
+        history = []
+    
     if not question or not question.strip():
         return QueryResponse(
             success=False,
@@ -409,7 +413,7 @@ def answer_question(question: str) -> QueryResponse:
     try:
         llm = get_llm()
         
-        # Check if question is database-related
+        # Check if question is database-related (include history for context)
         is_relevant, _ = _is_database_question(question, llm)
         if not is_relevant:
             return QueryResponse(
@@ -430,6 +434,17 @@ def answer_question(question: str) -> QueryResponse:
         docs = retriever.invoke(question)
         schema_ctx = "\n\n".join(d.page_content for d in docs) if docs else "\n\n".join(SCHEMA_SNIPPETS[:4])
         logger.debug(f"Retrieved {len(docs)} schema documents")
+        
+        # Build conversation context from history
+        conversation_context = ""
+        if history:
+            recent_history = history[-6:]  # Last 3 Q&A pairs (6 messages)
+            history_parts = []
+            for msg in recent_history:
+                role = "User" if msg.role == "user" else "Assistant"
+                history_parts.append(f"{role}: {msg.content}")
+            conversation_context = "\n".join(history_parts)
+            logger.debug(f"Using {len(recent_history)} messages from conversation history")
 
         # Generate SQL using the LLM
         logger.debug("Generating SQL query with LLM")
@@ -470,12 +485,21 @@ def answer_question(question: str) -> QueryResponse:
                 "- Output only valid, executable T-SQL\n"
             )
         
+        # Include conversation context if available
+        if conversation_context:
+            human_message = "Schema:\n{schema}\n\nPrevious conversation:\n{history}\n\nCurrent question: {question}"
+        else:
+            human_message = "Schema:\n{schema}\n\nQuestion: {question}"
+        
         sql_prompt = ChatPromptTemplate.from_messages([
             ("system", sql_system_prompt),
-            ("human", "Schema:\n{schema}\n\nQuestion: {question}")
+            ("human", human_message)
         ])
         
-        sql_raw = llm.invoke(sql_prompt.format_messages(schema=schema_ctx, question=question)).content
+        if conversation_context:
+            sql_raw = llm.invoke(sql_prompt.format_messages(schema=schema_ctx, history=conversation_context, question=question)).content
+        else:
+            sql_raw = llm.invoke(sql_prompt.format_messages(schema=schema_ctx, question=question)).content
         sql = extract_sql(sql_raw)
         sql = normalize_sql(sql)
         

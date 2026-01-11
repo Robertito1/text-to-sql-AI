@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Database, Trash2 } from 'lucide-react';
-import type { Message } from './types';
+import type { Message, ConversationMessage } from './types';
 import { askQuestion } from './api';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
@@ -18,6 +18,15 @@ function App() {
     scrollToBottom();
   }, [messages]);
 
+  const buildConversationHistory = (currentMessages: Message[]): ConversationMessage[] => {
+    return currentMessages
+      .slice(-6)
+      .map((msg) => ({
+        role: msg.type === 'user' ? 'user' : 'assistant',
+        content: msg.type === 'user' ? msg.content : msg.response?.summary || msg.content,
+      })) as ConversationMessage[];
+  };
+
   const handleSend = async (content: string) => {
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -26,11 +35,13 @@ function App() {
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
     setIsLoading(true);
 
     try {
-      const response = await askQuestion(content);
+      const history = buildConversationHistory(messages);
+      const response = await askQuestion(content, history);
       
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
