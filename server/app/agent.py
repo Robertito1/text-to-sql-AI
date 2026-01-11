@@ -4,7 +4,7 @@ from typing import List, Any, Tuple, Union, Optional, Dict
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_cohere import CohereEmbeddings
 
 from .db import get_sql_database
 from .schema_docs import SCHEMA_SNIPPETS
@@ -27,11 +27,9 @@ def get_vectorstore() -> Chroma:
     if _vectorstore_instance is not None:
         return _vectorstore_instance
     
-    logger.info("Initializing embeddings model...")
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={'device': 'cpu'},
-        encode_kwargs={'normalize_embeddings': True}
+    logger.info("Initializing Cohere embeddings...")
+    embeddings = CohereEmbeddings(
+        model="embed-english-light-v3.0"
     )
     
     logger.info("Initializing ChromaDB...")
