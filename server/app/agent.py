@@ -359,6 +359,34 @@ def _generate_summary(question: str, sql: str, data: List[Dict], llm: Any) -> st
         logger.warning(f"Failed to generate LLM summary: {e}")
         return f"Found {len(data)} result(s) for your query."
 
+def _is_database_question(question: str, llm) -> tuple[bool, str]:
+    """
+    Check if the question is related to database queries.
+    
+    Returns:
+        Tuple of (is_relevant, message)
+    """
+    classification_prompt = ChatPromptTemplate.from_messages([
+        ("system", """You are a classifier that determines if a user question is related to database queries.
+
+Our database contains:
+- Customers table: customer profiles with Name, Email, Country, CreatedAt
+- Orders table: purchase orders with OrderDate, Amount, Status (PAID/PENDING/CANCELLED)
+
+Respond with ONLY "YES" or "NO":
+- YES: if the question is about customers, orders, sales, revenue, data analysis, or anything that could be answered with a database query
+- NO: if the question is about general knowledge, coding help, personal advice, weather, news, or anything unrelated to our database"""),
+        ("human", "{question}")
+    ])
+    
+    try:
+        response = llm.invoke(classification_prompt.format_messages(question=question)).content.strip().upper()
+        is_relevant = response.startswith("YES")
+        return is_relevant, ""
+    except Exception as e:
+        logger.warning(f"Classification failed, assuming relevant: {e}")
+        return True, ""  # Default to allowing the question
+
 def answer_question(question: str) -> QueryResponse:
     """
     Answer a natural language question by generating and executing SQL.
@@ -380,6 +408,19 @@ def answer_question(question: str) -> QueryResponse:
     
     try:
         llm = get_llm()
+        
+        # Check if question is database-related
+        is_relevant, _ = _is_database_question(question, llm)
+        if not is_relevant:
+            return QueryResponse(
+                success=True,
+                summary="I can only answer questions about the database. Try asking about customers, orders, sales, or revenue. For example: 'How many customers do we have?' or 'Show monthly revenue for the last 6 months'.",
+                sql=None,
+                data=None,
+                chart=None,
+                error=None
+            )
+        
         db = get_sql_database()
 
         # 1) RAG: retrieve schema context
