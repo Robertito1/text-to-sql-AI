@@ -359,13 +359,20 @@ def _generate_summary(question: str, sql: str, data: List[Dict], llm: Any) -> st
         logger.warning(f"Failed to generate LLM summary: {e}")
         return f"Found {len(data)} result(s) for your query."
 
-def _is_database_question(question: str, llm) -> tuple[bool, str]:
+def _is_database_question(question: str, llm, history: list = None) -> tuple[bool, str]:
     """
     Check if the question is related to database queries.
     
     Returns:
         Tuple of (is_relevant, message)
     """
+    # If there's conversation history, follow-up questions are likely database-related
+    if history and len(history) > 0:
+        # Short follow-up questions with context are likely relevant
+        if len(question.split()) <= 6:
+            logger.info(f"Allowing short follow-up question with history: {question}")
+            return True, ""
+    
     classification_prompt = ChatPromptTemplate.from_messages([
         ("system", """You are a classifier that determines if a user question is related to database queries.
 
@@ -375,7 +382,8 @@ Our database contains:
 
 Respond with ONLY "YES" or "NO":
 - YES: if the question is about customers, orders, sales, revenue, data analysis, or anything that could be answered with a database query
-- NO: if the question is about general knowledge, coding help, personal advice, weather, news, or anything unrelated to our database"""),
+- YES: if the question appears to be a follow-up like "what about X", "show me Y", "and Z?", "how about...", etc.
+- NO: if the question is about general knowledge, coding help, personal advice, weather, news, or anything clearly unrelated to our database"""),
         ("human", "{question}")
     ])
     
@@ -414,7 +422,7 @@ def answer_question(question: str, history: list = None) -> QueryResponse:
         llm = get_llm()
         
         # Check if question is database-related (include history for context)
-        is_relevant, _ = _is_database_question(question, llm)
+        is_relevant, _ = _is_database_question(question, llm, history)
         if not is_relevant:
             return QueryResponse(
                 success=True,
