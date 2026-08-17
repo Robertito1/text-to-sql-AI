@@ -55,6 +55,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+async def root():
+    """Root endpoint for the hosted API."""
+    return {
+        "service": "sql-query-ai-assistant",
+        "message": "SQL Query AI Assistant API is running",
+        "endpoints": {
+            "health": "/health",
+            "ask": "/ask"
+        }
+    }
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
